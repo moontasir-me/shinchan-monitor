@@ -14,6 +14,8 @@ struct Reading {
     var topGPU: [AppUsage] = []
     var processCount = 0
     var diskRate = 0.0
+    var memory: MemoryReading? = nil
+    var battery: BatteryReading? = nil
 }
 
 struct AppUsage {
@@ -125,6 +127,7 @@ final class DetailSampler {
 
 final class SystemSampler {
     private let details = DetailSampler()
+    private let resources = ResourceSampler()
     private let host = mach_host_self()
     private var previous: [UInt32]?
     private var accelerators: [io_service_t] = []
@@ -192,7 +195,11 @@ final class SystemSampler {
         return values.max()
     }
 
-    func sample() -> Reading { details.enrich(Reading(cpu: readCPU(), gpu: readGPU(), date: Date())) }
+    func sample() -> Reading {
+        var reading = details.enrich(Reading(cpu:readCPU(),gpu:readGPU(),date:Date()))
+        reading.memory = resources.memory(); reading.battery = resources.battery()
+        return reading
+    }
 }
 
 final class Sparkline: NSView {
@@ -281,6 +288,9 @@ final class StatsController: NSViewController {
     private let temperatures = label("CPU — °C     GPU — °C", size: 17, weight: .semibold)
     private let cpuApps = label("Sampling apps…", size: 12)
     private let gpuApps = label("Sampling apps…", size: 12)
+    private let ram = label("RAM · Reading…",size:13,weight:.semibold)
+    private let battery = label("Battery · Reading…",size:13,weight:.semibold)
+    private let health = label("Battery health · Reading…",size:11,color:.secondaryLabelColor)
     private let activity = label("Reading this Mac…", size: 12)
     private let sizeLabel = label("Pet size · 100%", size: 12)
     private let slider = NSSlider(value: 100, minValue: 50, maxValue: 200, target: nil, action: nil)
@@ -296,11 +306,14 @@ final class StatsController: NSViewController {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func loadView() {
-        let background = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 344, height: 680))
+        let background = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 344, height: 780))
         background.material = .popover; background.blendingMode = .behindWindow; background.state = .active
-        background.appearance = NSAppearance(named: .darkAqua); view = background
+        background.appearance = NSAppearance(named: .darkAqua)
+        let scroll = NSScrollView(frame:NSRect(x:0,y:0,width:344,height:680))
+        scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true; scroll.drawsBackground = false
+        scroll.documentView = background; view = scroll
         func place(_ v: NSView, _ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) {
-            v.frame = NSRect(x:x,y:y,width:w,height:h); background.addSubview(v)
+            v.frame = NSRect(x:x,y:y >= 262 ? y+100 : y,width:w,height:h); background.addSubview(v)
         }
         place(label("Tintin", size: 21, weight: .bold),18,639,180,28)
         let alerts = NSButton(title:"Alerts…",target:self,action:#selector(openAlerts)); alerts.bezelStyle = .rounded
@@ -316,6 +329,11 @@ final class StatsController: NSViewController {
         place(gpuCard,16,311,312,103)
         place(gpuApps,22,262,300,44); gpuApps.maximumNumberOfLines = 2
         gpuApps.toolTip = "Top two apps by measured GPU time, in milliseconds per second. Parallel GPU work can overlap."
+        ram.frame = NSRect(x:20,y:322,width:304,height:23); background.addSubview(ram)
+        battery.frame = NSRect(x:20,y:292,width:304,height:23); background.addSubview(battery)
+        health.frame = NSRect(x:20,y:264,width:304,height:23); background.addSubview(health)
+        ram.toolTip = "Resident anonymous RAM minus purgeable pages, plus wired and compressed RAM. Reclaimable file cache is excluded. GiB uses binary units."
+        health.toolTip = "Estimated remaining full-charge capacity relative to design capacity, capped at 100%. May differ from Apple's rounded maximum-capacity figure. Condition is reported by macOS."
         place(label("CURRENT ACTIVITY",size:10,weight:.semibold,color:.secondaryLabelColor),20,239,300,17)
         place(activity,20,164,304,73); activity.maximumNumberOfLines = 4; activity.lineBreakMode = .byWordWrapping
         place(sizeLabel,20,138,304,20)
@@ -327,7 +345,8 @@ final class StatsController: NSViewController {
         place(monitor,16,15,147,28)
         let downloads = NSButton(title:"Downloads",target:self,action:#selector(openDownloads)); downloads.bezelStyle = .rounded
         place(downloads,174,15,154,28)
-        preferredContentSize = background.frame.size
+        preferredContentSize = scroll.frame.size
+        scroll.contentView.scroll(to:NSPoint(x:0,y:100)); scroll.reflectScrolledClipView(scroll.contentView)
         setScale(UserDefaults.standard.double(forKey:"petScale"))
         refreshLogin()
     }
@@ -355,6 +374,19 @@ final class StatsController: NSViewController {
     func update(_ r: Reading) {
         _ = view
         cpuCard.update(r.cpu); gpuCard.update(r.gpu)
+        if let m = r.memory {
+            ram.stringValue = String(format:"RAM  %.1f / %.0f GiB · %.0f%%",m.usedBytes/1_073_741_824,m.totalBytes/1_073_741_824,m.percent)
+            ram.toolTip = "Resident anonymous RAM minus purgeable pages, plus wired and compressed RAM; excludes reclaimable file cache." + (m.swapBytes.map { String(format:" Swap used: %.1f GiB.",$0/1_073_741_824) } ?? "")
+        } else { ram.stringValue = "RAM · Unavailable" }
+        if let b = r.battery {
+            let percentage = b.percent.map { String(format:"%.0f%%",$0) } ?? "—"
+            battery.stringValue = "Battery  \(percentage) · " + (b.charging ? "Charging" : b.pluggedIn ? "Plugged in" : "On battery")
+            let capacity = b.healthPercent.map { String(format:"%.0f%% est.",$0) } ?? "Capacity unavailable"
+            var parts = ["Health " + capacity]
+            if let condition = b.condition, !condition.isEmpty { parts.append(condition) }
+            if let cycles = b.cycles { parts.append("\(cycles) cycles") }
+            health.stringValue = parts.joined(separator:" · ")
+        } else { battery.stringValue = "Battery · Not available"; health.stringValue = "Battery health · Not available" }
         func temp(_ t: Double?) -> String { t.map { String(format:"%.0f",$0) } ?? "—" }
         temperatures.stringValue = "CPU \(temp(r.cpuTemperature)) °C      GPU \(temp(r.gpuTemperature)) °C"
         func rows(_ apps: [AppUsage], gpu: Bool) -> String {
@@ -617,7 +649,7 @@ if CommandLine.arguments.contains("--self-test") {
     _ = sampler.sample()
     Thread.sleep(forTimeInterval: 2.05)
     let r = sampler.sample()
-    let payload: [String: Any] = ["networkPolicy":"deny network*; applied before app initialization","cpuPercent":r.cpu as Any? ?? NSNull(),"gpuPercent":r.gpu as Any? ?? NSNull(),"cpuTemperature":r.cpuTemperature as Any? ?? NSNull(),"gpuTemperature":r.gpuTemperature as Any? ?? NSNull(),"cpuName":sampler.cpuName,"gpuName":sampler.gpuName,"processCount":r.processCount,"topCPU":r.topCPU.map { ["name":$0.name,"percentOfMachine":$0.value] as [String:Any] },"topGPU":r.topGPU.map { ["name":$0.name,"millisecondsPerSecond":$0.value] as [String:Any] },"diskBytesPerSecond":r.diskRate,"loginStatus":loginStatus()]
+    let payload: [String: Any] = ["networkPolicy":"deny network*; applied before app initialization","cpuPercent":r.cpu as Any? ?? NSNull(),"gpuPercent":r.gpu as Any? ?? NSNull(),"cpuTemperature":r.cpuTemperature as Any? ?? NSNull(),"gpuTemperature":r.gpuTemperature as Any? ?? NSNull(),"ramUsedBytes":r.memory?.usedBytes as Any? ?? NSNull(),"ramTotalBytes":r.memory?.totalBytes as Any? ?? NSNull(),"ramPercent":r.memory?.percent as Any? ?? NSNull(),"batteryPercent":r.battery?.percent as Any? ?? NSNull(),"batteryHealthPercentEstimate":r.battery?.healthPercent as Any? ?? NSNull(),"batteryCondition":r.battery?.condition as Any? ?? NSNull(),"batteryCycles":r.battery?.cycles as Any? ?? NSNull(),"batteryCharging":r.battery?.charging as Any? ?? NSNull(),"batteryPluggedIn":r.battery?.pluggedIn as Any? ?? NSNull(),"cpuName":sampler.cpuName,"gpuName":sampler.gpuName,"processCount":r.processCount,"topCPU":r.topCPU.map { ["name":$0.name,"percentOfMachine":$0.value] as [String:Any] },"topGPU":r.topGPU.map { ["name":$0.name,"millisecondsPerSecond":$0.value] as [String:Any] },"diskBytesPerSecond":r.diskRate,"loginStatus":loginStatus()]
     let data = try JSONSerialization.data(withJSONObject: payload,options: [.prettyPrinted,.sortedKeys])
     print(String(decoding: data,as: UTF8.self)); exit(r.cpu == nil ? 1 : 0)
 }

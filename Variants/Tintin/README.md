@@ -1,12 +1,22 @@
-# Tintin Monitor 3.0
+# Tintin Monitor 3.1
 
 A local macOS desktop companion for this Apple M4 laptop. On this laptop it is installed at `~/Applications/Tintin Monitor.app`.
 
 ## Offline security
 
-Version 3.0 blocks the pet process's networking through a macOS sandbox policy, applied before app initialization. If it cannot apply the policy, it refuses to start. No Internet, cloud service, remote assets, server, or account is needed at runtime. GitHub uploads are separate development actions.
+Version 3.1 blocks the pet process's networking through a macOS sandbox policy, applied before app initialization. If it cannot apply the policy, it refuses to start. No Internet, cloud service, remote assets, server, or account is needed at runtime. GitHub uploads are separate development actions.
 
 See [SECURITY.md](SECURITY.md) for the exact policy, test procedure, and scope. `--security-test` verifies IPv4/IPv6 TCP, UDP, and bind operations are blocked using loopback only.
+
+## RAM and battery
+
+Version 3.1 adds RAM used/total and percentage, battery charge percentage, charging/plugged-in status, estimated battery health capacity, and charge cycle count. These are local kernel, IOKit power-source, and battery-registry reads under the existing network-denial policy.
+
+RAM uses GiB (binary units). Used RAM includes resident anonymous pages minus purgeable pages, plus wired and compressed memory; reclaimable file cache is excluded. Swap use is available in the RAM tooltip.
+
+Battery health percentage is an estimate of nominal full-charge capacity divided by design capacity, capped at 100%; raw full-charge capacity is used only if nominal capacity is unavailable. It can differ from Apple's rounded Battery Health screen. macOS condition is shown when available. Missing data is displayed as unavailable; battery-less Macs do not get fabricated readings.
+
+The panel scrolls to keep all monitoring and existing size/startup controls accessible on smaller screens. No hardware samples or battery identifiers are sent to GitHub.
 
 ## Pixel-art edition
 
@@ -75,3 +85,5 @@ The self-test prints actual readings and top-two process samples after a two-sec
 The implementation uses AppKit, Metal, read-only IOKit/AppleSMC queries, libproc, and Apple's ServiceManagement login-item API. It does not alter fan settings or system processes. The included source builds an ad-hoc signed local app. No developer account or extra runtime is needed on this Mac.
 
 Verified locally: CPU/GPU totals, per-app CPU and GPU samples, separate CPU/GPU temperatures, enabled login status, continuous size and alert-limit sliders, and enabled macOS notification access. The alert state machine passes 196 deterministic checks covering sustained readings, all four metrics, cooldowns, recovery, missing sensors, sleep gaps, disable, and preference persistence.
+
+Version 3.1 validation: 196 alert-engine checks and 16 RAM/battery calculation checks passed. Local self-test and on-screen RAM/charge/health/cycle readings were verified with the network restriction active.

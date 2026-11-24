@@ -12,7 +12,7 @@ xcrun swiftc -O -swift-version 5 -target arm64-apple-macos13.0 \
   -module-cache-path "${TINTIN_MODULE_CACHE:-$BUILD_DIR/module-cache}" \
   -lsandbox -framework AppKit -framework IOKit -framework Metal -framework ServiceManagement -framework UserNotifications \
   -import-objc-header "$SCRIPT_DIR/NativeSensors.h" "$BUILD_DIR/NativeSensors.o" "$BUILD_DIR/OfflineSecurity.o" \
-  "$BUILD_DIR/main.swift" "$SCRIPT_DIR/AlertEngine.swift" "$SCRIPT_DIR/AlertUI.swift" -o "$APP_DIR/Contents/MacOS/TintinMonitor"
+  "$BUILD_DIR/main.swift" "$SCRIPT_DIR/AlertEngine.swift" "$SCRIPT_DIR/AlertUI.swift" "$SCRIPT_DIR/ResourceValues.swift" "$SCRIPT_DIR/ResourceSampler.swift" -o "$APP_DIR/Contents/MacOS/TintinMonitor"
 cp "$SCRIPT_DIR/Assets/spritesheet.png" "$APP_DIR/Contents/Resources/spritesheet.png"
 
 cp "$SCRIPT_DIR/Assets/AppIcon.png" "$APP_DIR/Contents/Resources/AppIcon.png"
