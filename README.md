@@ -1,66 +1,55 @@
-# Shinchan Monitor 2.1
+# Local laptop companions
 
-A local macOS desktop companion for this Apple M4 laptop. On this laptop it is installed at `~/Applications/Shinchan Monitor.app`.
+**Tintin Monitor 3.0** is the new retro 32-bit-style pixel-art companion: Tintin sits using a laptop, idles, blinks, types, waves, and reacts to hardware warnings. The executable is native 64-bit Apple silicon for modern macOS.
 
-## Use
+<img src="Variants/Tintin/Source/Assets/AppIcon.png" width="220" alt="Pixel-art Tintin using a laptop">
 
-- Click Shinchan to open live laptop status. Click the close button to return to the pet.
-- Drag Shinchan to move him. His position and size are saved.
-- Adjust **Pet size** from 50% to 200% in the status panel. Right-click presets are also available.
-- **Start automatically at login** is enabled on this laptop. The checkbox turns it off or on. macOS starts login items after you sign in, not before the login screen.
-- The paw menu in the menu bar can show Shinchan, reset his position, or quit.
-- **Activity Monitor** opens Apple's detailed process viewer. **Downloads** opens your local Downloads folder.
+**Shinchan Monitor 2.2** remains available with the same offline network restriction.
 
-## Live readings
+## Offline operation
 
-The panel refreshes every two seconds and shows:
+Both apps run locally with no Internet connection, account, server, API key, cloud AI, telemetry, auto-update, or remote artwork. A macOS process sandbox denies networking before app initialization; if that restriction cannot be installed, the app refuses to start. GitHub publishing is separate from the app.
 
-- Total CPU usage across all cores and a recent history graph.
-- Total GPU usage reported by the accelerator driver and a recent history graph.
-- Top two CPU applications, grouping helper processes under their application. CPU percentages are normalized to total machine capacity.
-- Top two GPU applications ranked by measured GPU time. Units are **milliseconds of GPU work per second** (ms/s); these are not application utilization percentages. Parallel GPU work can overlap, and the driver may omit some processes.
-- Separate CPU and GPU temperatures, averaged from available M4 die sensors. A dash indicates unavailable data.
-- Sampled activity level, busiest application names, process count, process disk reads + writes per second, and macOS thermal pressure.
+See [SECURITY.md](SECURITY.md) for the exact policy, verification commands, and limitations. This restriction covers the pet process, not other apps or the entire operating system.
 
-Activity summaries describe observed resource usage. They do not inspect documents, command arguments, browser content, or determine task completion/progress. This version is a local system companion, with no cloud AI connection, microphone listener, or network telemetry.
+## Monitoring and alerts
 
-## Hardware alerts
+- Real CPU/GPU totals and history, separate M4 CPU/GPU die temperatures, and top two active CPU/GPU applications.
+- Local current activity, disk I/O, process count, and thermal pressure.
+- Adjustable size, drag-to-position, saved preferences, and native launch-at-login support.
+- Warning limits default to 90% CPU/GPU usage for 30 seconds, or 85 °C for 10 seconds.
+- Adjustable limits, on-pet warning bubbles, optional local notification sounds/banners, and a five-minute per-metric cooldown.
+- No process command arguments or document/browser contents are inspected.
 
-Click **Alerts…** in the panel or **Hardware alerts…** in the paw menu.
+Tintin copies existing local Shinchan size, position, and alert preferences on first launch. Login launch and notification permission are separate per app. Enable the companion you want to use at login.
 
-| Reading | Default warning limit | Must stay high for |
-| --- | --- | --- |
-| CPU usage | 90% | 30 seconds |
-| GPU usage | 90% | 30 seconds |
-| CPU temperature | 85 °C | 10 seconds |
-| GPU temperature | 85 °C | 10 seconds |
+## Download
 
-- Change each limit with its slider. Enable/disable alerts and sound independently. Preferences are saved locally.
-- A warning appears in a bubble beside Shinchan for 18 seconds, with buttons to show laptop status or dismiss it. The paw menu becomes a warning symbol while a qualified high reading remains active.
-- If macOS notification permission is allowed, a local notification also appears. Focus and screen-sharing settings can suppress system banners; the pet bubble remains available.
-- Each metric alerts at most once every five minutes, including after restarting the app. Sustained high readings can trigger another reminder after that cooldown.
-- Short spikes do not alert. Recovery uses a 5-percentage-point margin for usage and 3 °C for temperature, to avoid flickering around a threshold.
-- Missing sensors do not generate alerts. Sampling gaps after sleep reset the qualification timer.
-- **Test alert** demonstrates the warning without stressing or heating the laptop. The test is clearly labeled and does not alter real alert cooldowns.
+Get `TintinMonitor.zip` or `ShinchanMonitor.zip` from [Releases](https://github.com/moontasir-me/shinchan-monitor/releases). Each archive includes its `.app`, source, build/test scripts, and documentation. Builds are locally ad-hoc signed and intended for Apple silicon macOS 13+; die sensor keys were tested on M4.
 
-These are configurable warning levels, not hardware shutdown limits. CPU/GPU temperatures use the available sensor averages described above. Alerts run while Shinchan is running; login launch keeps him available after sign-in.
+## Build Tintin
 
-## Build and diagnostics
+Requires Xcode Command Line Tools; no third-party packages are needed.
 
-Requires Apple silicon macOS 13+ and Xcode Command Line Tools. Temperature keys are intended for this M4 laptop; other hardware can show unavailable temperatures.
+```sh
+bash Variants/Tintin/Source/test.sh
+bash Variants/Tintin/Source/build.sh
+"Variants/Tintin/Tintin Monitor.app/Contents/MacOS/TintinMonitor" --security-test
+"Variants/Tintin/Tintin Monitor.app/Contents/MacOS/TintinMonitor" --self-test
+```
+
+[Full Tintin instructions](Variants/Tintin/README.md) · [Artwork prompts](Variants/Tintin/ASSETS.md)
+
+## Build Shinchan
 
 ```sh
 bash Source/test.sh
 bash Source/build.sh
-"Shinchan Monitor.app/Contents/MacOS/ShinchanMonitor" --self-test
+"Shinchan Monitor.app/Contents/MacOS/ShinchanMonitor" --security-test
 ```
 
-The self-test prints actual readings and top-two process samples after a two-second sampling interval. Login registration belongs to the installed app's path:
+[Full Shinchan instructions](SHINCHAN.md)
 
-```sh
-"$HOME/Applications/Shinchan Monitor.app/Contents/MacOS/ShinchanMonitor" --login-status
-```
+## Validation
 
-The implementation uses AppKit, Metal, read-only IOKit/AppleSMC queries, libproc, and Apple's ServiceManagement login-item API. It does not alter fan settings or system processes. The included source builds an ad-hoc signed local app. No developer account or extra runtime is needed on this Mac.
-
-Verified locally: CPU/GPU totals, per-app CPU and GPU samples, separate CPU/GPU temperatures, enabled login status, continuous size and alert-limit sliders, and enabled macOS notification access. The alert state machine passes 196 deterministic checks covering sustained readings, all four metrics, cooldowns, recovery, missing sensors, sleep gaps, disable, and preference persistence.
+Verified locally on an M4 Mac: both native builds and signatures; OS denial of IPv4/IPv6 TCP, UDP, and bind operations using loopback only; actual hardware readings under the restriction; Tintin's visible animation and live status panel; saved size/alert preferences; login launch and local notification permission. Alert logic passes 196 deterministic checks without a hardware stress test. Starting under a sandbox that prevents applying the policy is tested to exit closed.

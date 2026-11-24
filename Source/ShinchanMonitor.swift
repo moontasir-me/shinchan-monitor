@@ -305,7 +305,7 @@ final class StatsController: NSViewController {
         place(label("Shinchan", size: 21, weight: .bold),18,639,180,28)
         let alerts = NSButton(title:"Alerts…",target:self,action:#selector(openAlerts)); alerts.bezelStyle = .rounded
         place(alerts,211,639,85,28)
-        place(label("Your local laptop companion",size:12,color:.secondaryLabelColor),18,619,290,18)
+        place(label("Local only · network access blocked",size:12,color:.secondaryLabelColor),18,619,290,18)
         let close = NSButton(image: NSImage(systemSymbolName:"xmark.circle.fill", accessibilityDescription:"Close statistics")!,target:self,action:#selector(closePanel))
         close.isBordered = false; place(close,303,643,23,23)
         place(temperatures,18,582,310,27)
@@ -590,6 +590,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 }
 
+// Apply network denial before creating AppKit, Metal, samplers, or login services.
+var offlineError = [CChar](repeating:0,count:1024)
+guard sm_offline_start(&offlineError,Int32(offlineError.count)) else {
+    fputs("Offline security could not be applied; refusing to start: " + String(cString:offlineError) + "\n",stderr)
+    exit(78)
+}
+if CommandLine.arguments.contains("--security-test") {
+    let verified = sm_offline_verify()
+    print(verified ? "PASS: IPv4/IPv6 TCP, UDP, and bind operations blocked by OS policy. No external traffic attempted." : "FAIL: network restriction verification failed")
+    exit(verified ? 0 : 1)
+}
+
+if CommandLine.arguments.contains("--disable-login") {
+    do { try SMAppService.mainApp.unregister(); print("Login launch: " + loginStatus()); exit(0) }
+    catch { fputs("Login unregistration failed: \(error)\n",stderr); exit(1) }
+}
 if CommandLine.arguments.contains("--enable-login") {
     do { try SMAppService.mainApp.register(); print("Login launch: " + loginStatus()); exit(0) }
     catch { fputs("Login registration failed: \(error)\n",stderr); exit(1) }
@@ -600,7 +616,7 @@ if CommandLine.arguments.contains("--self-test") {
     _ = sampler.sample()
     Thread.sleep(forTimeInterval: 2.05)
     let r = sampler.sample()
-    let payload: [String: Any] = ["cpuPercent":r.cpu as Any? ?? NSNull(),"gpuPercent":r.gpu as Any? ?? NSNull(),"cpuTemperature":r.cpuTemperature as Any? ?? NSNull(),"gpuTemperature":r.gpuTemperature as Any? ?? NSNull(),"cpuName":sampler.cpuName,"gpuName":sampler.gpuName,"processCount":r.processCount,"topCPU":r.topCPU.map { ["name":$0.name,"percentOfMachine":$0.value] as [String:Any] },"topGPU":r.topGPU.map { ["name":$0.name,"millisecondsPerSecond":$0.value] as [String:Any] },"diskBytesPerSecond":r.diskRate,"loginStatus":loginStatus()]
+    let payload: [String: Any] = ["networkPolicy":"deny network*; applied before app initialization","cpuPercent":r.cpu as Any? ?? NSNull(),"gpuPercent":r.gpu as Any? ?? NSNull(),"cpuTemperature":r.cpuTemperature as Any? ?? NSNull(),"gpuTemperature":r.gpuTemperature as Any? ?? NSNull(),"cpuName":sampler.cpuName,"gpuName":sampler.gpuName,"processCount":r.processCount,"topCPU":r.topCPU.map { ["name":$0.name,"percentOfMachine":$0.value] as [String:Any] },"topGPU":r.topGPU.map { ["name":$0.name,"millisecondsPerSecond":$0.value] as [String:Any] },"diskBytesPerSecond":r.diskRate,"loginStatus":loginStatus()]
     let data = try JSONSerialization.data(withJSONObject: payload,options: [.prettyPrinted,.sortedKeys])
     print(String(decoding: data,as: UTF8.self)); exit(r.cpu == nil ? 1 : 0)
 }

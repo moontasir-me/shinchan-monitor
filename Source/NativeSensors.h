@@ -15,4 +15,6 @@ int sm_process_name(int32_t pid, char *buffer, int size);
 uint32_t sm_smc_open(void);
 void sm_smc_close(uint32_t connection);
 double sm_smc_temperature(uint32_t connection, const char *key);
+bool sm_offline_start(char *message, int capacity);
+bool sm_offline_verify(void);
 #endif
