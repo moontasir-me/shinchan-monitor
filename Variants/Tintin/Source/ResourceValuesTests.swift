@@ -20,6 +20,10 @@ import Foundation
         check(MemoryReading.make(anonymousPages:1000,purgeablePages:0,wiredPages:1000,compressedPages:0,pageSize:16384,totalBytes:100,swapBytes:nil)?.usedBytes == 100,"RAM capped at physical capacity")
         check(MemoryReading.make(anonymousPages:1,purgeablePages:0,wiredPages:1,compressedPages:0,pageSize:0,totalBytes:100,swapBytes:nil) == nil,"Unavailable page size")
         check(MemoryReading.make(anonymousPages:1,purgeablePages:0,wiredPages:1,compressedPages:0,pageSize:4096,totalBytes:0,swapBytes:nil) == nil,"Unavailable physical RAM")
+        check(PowerReading.watts(milliwatts:6512) == 6.512,"Power milliwatts converted to watts")
+        check(PowerReading.watts(milliwatts:0) == 0,"Zero power remains valid")
+        check(PowerReading.watts(milliwatts:-1) == nil,"Negative power unavailable")
+        check(PowerReading.watts(milliwatts:.nan) == nil,"Invalid power unavailable")
         print("Passed \(checks) RAM/battery checks.")
     }
 }

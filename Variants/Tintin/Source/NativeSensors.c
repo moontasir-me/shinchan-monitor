@@ -7,12 +7,23 @@
 
 int sm_list_pids(int32_t *pids, int capacity) { return proc_listallpids(pids,capacity*(int)sizeof(int32_t)); }
 bool sm_process_sample(int32_t pid, SMProcessSample *sample) {
-    struct rusage_info_v4 value={0};
-    if(proc_pid_rusage(pid,RUSAGE_INFO_V4,(rusage_info_t*)&value)!=0)return false;
-    sample->cpuTicks=value.ri_user_time+value.ri_system_time;
-    sample->startedTicks=value.ri_proc_start_abstime;
-    sample->bytesRead=value.ri_diskio_bytesread;
-    sample->bytesWritten=value.ri_diskio_byteswritten;
+    struct rusage_info_v6 value={0};
+    if(proc_pid_rusage(pid,RUSAGE_INFO_V6,(rusage_info_t*)&value)==0){
+        sample->cpuTicks=value.ri_user_time+value.ri_system_time;
+        sample->startedTicks=value.ri_proc_start_abstime;
+        sample->bytesRead=value.ri_diskio_bytesread;
+        sample->bytesWritten=value.ri_diskio_byteswritten;
+        sample->energyNanojoules=value.ri_energy_nj;
+        sample->energyAvailable=true;
+    }else{
+        struct rusage_info_v4 legacy={0};
+        if(proc_pid_rusage(pid,RUSAGE_INFO_V4,(rusage_info_t*)&legacy)!=0)return false;
+        sample->cpuTicks=legacy.ri_user_time+legacy.ri_system_time;
+        sample->startedTicks=legacy.ri_proc_start_abstime;
+        sample->bytesRead=legacy.ri_diskio_bytesread;
+        sample->bytesWritten=legacy.ri_diskio_byteswritten;
+        sample->energyNanojoules=0;sample->energyAvailable=false;
+    }
     return true;
 }
 int sm_process_path(int32_t pid,char *buffer,int size){return proc_pidpath(pid,buffer,(uint32_t)size);}
@@ -45,7 +56,7 @@ static bool sm_call(uint32_t connection,SMMessage *input,SMMessage *output){
     size_t size=sizeof(*output);
     return IOConnectCallStructMethod(connection,2,input,sizeof(*input),output,&size)==KERN_SUCCESS && size==sizeof(*output) && output->result==0;
 }
-double sm_smc_temperature(uint32_t connection,const char *key){
+double sm_smc_value(uint32_t connection,const char *key){
     if(!connection||!key||strlen(key)!=4)return NAN;
     SMMessage request={0},response={0};request.key=fourcc(key);request.command=9;
     if(!sm_call(connection,&request,&response)||response.info.size==0||response.info.size>32)return NAN;
@@ -54,5 +65,10 @@ double sm_smc_temperature(uint32_t connection,const char *key){
     double value=NAN;
     if(type==fourcc("flt ")){float f;memcpy(&f,response.bytes,sizeof f);value=f;}
     else if(type==fourcc("sp78")){int16_t n=(int16_t)(((uint16_t)response.bytes[0]<<8)|response.bytes[1]);value=(double)n/256;}
+    return isfinite(value)?value:NAN;
+}
+
+double sm_smc_temperature(uint32_t connection,const char *key){
+    double value=sm_smc_value(connection,key);
     return isfinite(value)&&value>=5&&value<=130?value:NAN;
 }

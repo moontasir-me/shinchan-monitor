@@ -20,8 +20,20 @@ struct BatteryReading {
     let healthPercent: Double?
     let condition: String?
     let cycles: Int?
+    var power: PowerReading? = nil
     static func percentage(current: Double?, maximum: Double?) -> Double? {
         guard let current, let maximum, current.isFinite, maximum.isFinite, current >= 0, maximum > 0 else { return nil }
         return min(100,max(0,current/maximum*100))
+    }
+}
+
+struct PowerReading {
+    var batteryTemperature: Double?
+    var systemWatts: Double?
+    var adapterWatts: Double?
+    var adapterMaximumWatts: Double?
+    static func watts(milliwatts: Double?) -> Double? {
+        guard let value = milliwatts, value.isFinite, (0...500_000).contains(value) else { return nil }
+        return value/1000
     }
 }

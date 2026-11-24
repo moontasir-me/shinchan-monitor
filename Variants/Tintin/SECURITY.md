@@ -21,7 +21,7 @@ This uses macOS's legacy `sandbox_init` interface, which Apple marks deprecated.
 ## Data and dependencies
 
 - No HTTP client calls, web views, sockets for app operation, analytics, crash upload, automatic updater, cloud AI, or remote asset downloads.
-- RAM use, battery percentage/health/cycles, CPU/GPU usage, die temperatures, app names, and activity summaries are read and displayed locally. Process command arguments and document/browser contents are not inspected.
+- System/adapter watts, battery temperature, per-process energy counters, RAM use, battery percentage/health/cycles, CPU/GPU usage, die temperatures, app names, and activity summaries are read and displayed locally. Process command arguments and document/browser contents are not inspected.
 - Position, size, warning preferences, and last warning timestamps use local UserDefaults. No diagnostic hardware samples are uploaded to GitHub.
 - Notifications, login launch, window rendering, and opening Activity Monitor/Downloads rely on local macOS services. The app cannot control what macOS or other installed apps do on the network.
 - Only Apple system frameworks/libraries are linked. No downloaded runtime, package manager, or third-party background service is installed.

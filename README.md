@@ -1,6 +1,6 @@
 # Local laptop companions
 
-**Tintin Monitor 3.1** is the new retro 32-bit-style pixel-art companion: Tintin sits using a laptop, idles, blinks, types, waves, and reacts to hardware warnings. The executable is native 64-bit Apple silicon for modern macOS.
+**Tintin Monitor 3.2** is the new retro 32-bit-style pixel-art companion: Tintin sits using a laptop, idles, blinks, types, waves, and reacts to hardware warnings. The executable is native 64-bit Apple silicon for modern macOS.
 
 <img src="Variants/Tintin/Source/Assets/AppIcon.png" width="220" alt="Pixel-art Tintin using a laptop">
 
@@ -14,6 +14,7 @@ See [SECURITY.md](SECURITY.md) for the exact policy, verification commands, and 
 
 ## Monitoring and alerts
 
+- A compact 336×450 window with Overview, Power, and Settings tabs; battery temperature, measured system/adapter watts, adapter rated maximum, and top-two kernel-reported energy users.
 - RAM used/total and percentage, battery charge/charging state, estimated battery health capacity, cycle count, and reported condition when available. Read locally under the enforced offline policy.
 - Real CPU/GPU totals and history, separate M4 CPU/GPU die temperatures, and top two active CPU/GPU applications.
 - Local current activity, disk I/O, process count, and thermal pressure.
@@ -53,4 +54,4 @@ bash Source/build.sh
 
 ## Validation
 
-Verified locally on an M4 Mac: both native builds and signatures; OS denial of IPv4/IPv6 TCP, UDP, and bind operations using loopback only; actual hardware readings under the restriction; Tintin's visible animation and live status panel; saved size/alert preferences; login launch and local notification permission. Alert logic passes 196 deterministic checks and RAM/battery calculation handling passes 16 additional checks without a hardware stress test. Starting under a sandbox that prevents applying the policy is tested to exit closed.
+Verified locally on an M4 Mac: both native builds and signatures; OS denial of IPv4/IPv6 TCP, UDP, and bind operations using loopback only; actual hardware readings under the restriction; Tintin's visible animation and live status panel; saved size/alert preferences; login launch and local notification permission. Alert logic passes 196 deterministic checks and RAM/battery calculation handling passes 20 additional RAM/battery/power checks without a hardware stress test. Starting under a sandbox that prevents applying the policy is tested to exit closed.

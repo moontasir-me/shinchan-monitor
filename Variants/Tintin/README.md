@@ -1,4 +1,4 @@
-# Tintin Monitor 3.1
+# Tintin Monitor 3.2
 
 A local macOS desktop companion for this Apple M4 laptop. On this laptop it is installed at `~/Applications/Tintin Monitor.app`.
 
@@ -8,6 +8,21 @@ Version 3.1 blocks the pet process's networking through a macOS sandbox policy, 
 
 See [SECURITY.md](SECURITY.md) for the exact policy, test procedure, and scope. `--security-test` verifies IPv4/IPv6 TCP, UDP, and bind operations are blocked using loopback only.
 
+## Compact window and power
+
+Version 3.2 replaces the tall scrolling panel with a 336×450 window, about one-third shorter. Overview shows CPU/GPU graphs and top-two apps, temperatures, RAM, battery, health, and activity. Settings holds size, login launch, and quick actions.
+
+The Power tab adds:
+
+- Battery charge history and charging state.
+- Battery temperature from available local SMC battery sensors.
+- System power in watts from SMC, with local power telemetry as fallback, and a recent history graph.
+- Measured adapter input in watts, with the separately labeled rated maximum. Disconnected adapters are shown as not connected; unavailable readings show a dash.
+- Top two applications by kernel process-energy counter changes per second. This measures reported process energy and does not account for all hardware or sum to whole-system wattage. Older systems without counters show no per-app data instead of estimates from CPU/GPU usage.
+- Estimated battery health and cycle count.
+
+All readings remain local under the same enforced network-denial policy. No online service is used.
+
 ## RAM and battery
 
 Version 3.1 adds RAM used/total and percentage, battery charge percentage, charging/plugged-in status, estimated battery health capacity, and charge cycle count. These are local kernel, IOKit power-source, and battery-registry reads under the existing network-denial policy.
@@ -16,7 +31,7 @@ RAM uses GiB (binary units). Used RAM includes resident anonymous pages minus pu
 
 Battery health percentage is an estimate of nominal full-charge capacity divided by design capacity, capped at 100%; raw full-charge capacity is used only if nominal capacity is unavailable. It can differ from Apple's rounded Battery Health screen. macOS condition is shown when available. Missing data is displayed as unavailable; battery-less Macs do not get fabricated readings.
 
-The panel scrolls to keep all monitoring and existing size/startup controls accessible on smaller screens. No hardware samples or battery identifiers are sent to GitHub.
+The compact 336×450 panel has Overview, Power, and Settings tabs; all readings and size/startup controls fit without scrolling. No hardware samples or battery identifiers are sent to GitHub.
 
 ## Pixel-art edition
 
@@ -87,3 +102,5 @@ The implementation uses AppKit, Metal, read-only IOKit/AppleSMC queries, libproc
 Verified locally: CPU/GPU totals, per-app CPU and GPU samples, separate CPU/GPU temperatures, enabled login status, continuous size and alert-limit sliders, and enabled macOS notification access. The alert state machine passes 196 deterministic checks covering sustained readings, all four metrics, cooldowns, recovery, missing sensors, sleep gaps, disable, and preference persistence.
 
 Version 3.1 validation: 196 alert-engine checks and 16 RAM/battery calculation checks passed. Local self-test and on-screen RAM/charge/health/cycle readings were verified with the network restriction active.
+
+Version 3.2 validation: both build/signature and offline network-denial checks passed, local temperature/power/process-energy readings were sampled, all three compact tabs were checked on screen, and 196 alert + 20 RAM/battery/power checks passed.

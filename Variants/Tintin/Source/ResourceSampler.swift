@@ -5,6 +5,8 @@ import IOKit.ps
 
 // Local kernel/power-source reads only. No shell subprocesses or network calls.
 final class ResourceSampler {
+    private let smc = sm_smc_open()
+    deinit { sm_smc_close(smc) }
     func memory() -> MemoryReading? {
         let host = mach_host_self()
         defer { mach_port_deallocate(mach_task_self_,host) }
@@ -32,6 +34,7 @@ final class ResourceSampler {
             if condition?.isEmpty != false { condition = d[kIOPSBatteryHealthKey] as? String }
             var health: Double?
             var cycles: Int?
+            var power: PowerReading?
             let service = IOServiceGetMatchingService(kIOMainPortDefault,IOServiceMatching("AppleSmartBattery"))
             if service != 0 {
                 defer { IOObjectRelease(service) }
@@ -45,8 +48,22 @@ final class ResourceSampler {
                 let nominal = (property("NominalChargeCapacity") as? NSNumber)?.doubleValue ?? (capacity?["NominalChargeCapacity"] as? NSNumber)?.doubleValue
                 let raw = (property("AppleRawMaxCapacity") as? NSNumber)?.doubleValue ?? (capacity?["AppleRawMaxCapacity"] as? NSNumber)?.doubleValue
                 health = BatteryReading.percentage(current:nominal ?? raw,maximum:design)
+                let telemetry = property("PowerTelemetryData") as? [String:Any]
+                let adapter = property("AdapterDetails") as? [String:Any]
+                let temperatures = ["TB1T","TB2T"].map { (key:String) -> Double in key.withCString { sm_smc_temperature(smc,$0) } }.filter { $0.isFinite }
+                func smcWatts(_ key: String) -> Double? {
+                    let value = sm_smc_value(smc,key)
+                    return value.isFinite && (0...500).contains(value) ? value : nil
+                }
+                let pluggedIn = d[kIOPSPowerSourceStateKey] as? String == kIOPSACPowerValue
+                power = PowerReading(
+                    batteryTemperature:temperatures.isEmpty ? nil : temperatures.reduce(0,+)/Double(temperatures.count),
+                    systemWatts:smcWatts("PSTR") ?? PowerReading.watts(milliwatts:(telemetry?["SystemLoad"] as? NSNumber)?.doubleValue),
+                    adapterWatts:pluggedIn ? (smcWatts("PDTR") ?? PowerReading.watts(milliwatts:(telemetry?["SystemPowerIn"] as? NSNumber)?.doubleValue)) : nil,
+                    adapterMaximumWatts:pluggedIn ? (adapter?["Watts"] as? NSNumber)?.doubleValue : nil)
+
             }
-            return BatteryReading(percent:charge,charging:d[kIOPSIsChargingKey] as? Bool ?? false,pluggedIn:d[kIOPSPowerSourceStateKey] as? String == kIOPSACPowerValue,healthPercent:health,condition:condition,cycles:cycles)
+            return BatteryReading(percent:charge,charging:d[kIOPSIsChargingKey] as? Bool ?? false,pluggedIn:d[kIOPSPowerSourceStateKey] as? String == kIOPSACPowerValue,healthPercent:health,condition:condition,cycles:cycles,power:power)
         }
         return nil
     }

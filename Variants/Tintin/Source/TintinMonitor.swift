@@ -12,6 +12,7 @@ struct Reading {
     var gpuTemperature: Double? = nil
     var topCPU: [AppUsage] = []
     var topGPU: [AppUsage] = []
+    var topEnergy: [AppUsage] = []
     var processCount = 0
     var diskRate = 0.0
     var memory: MemoryReading? = nil
@@ -89,6 +90,7 @@ final class DetailSampler {
         let count = max(0, min(pids.count, Int(sm_list_pids(&pids, Int32(pids.count)))))
         var next: [Int32: SMProcessSample] = [:]
         var cpu: [String: Double] = [:]
+        var energy: [String: Double] = [:]
         var disk = 0.0
         for pid in pids.prefix(count) where pid > 0 {
             var sample = SMProcessSample()
@@ -98,6 +100,9 @@ final class DetailSampler {
             guard validInterval, let old = previous[pid], old.startedTicks == sample.startedTicks else { continue }
             if sample.cpuTicks >= old.cpuTicks {
                 cpu[title, default: 0] += Double(sample.cpuTicks-old.cpuTicks)*tickNS/1e9/elapsed*100/Double(ProcessInfo.processInfo.activeProcessorCount)
+            }
+            if sample.energyAvailable && old.energyAvailable && sample.energyNanojoules >= old.energyNanojoules {
+                energy[title,default:0] += Double(sample.energyNanojoules-old.energyNanojoules)/1e9/elapsed
             }
             if sample.bytesRead >= old.bytesRead && sample.bytesWritten >= old.bytesWritten {
                 disk += Double(sample.bytesRead-old.bytesRead) + Double(sample.bytesWritten-old.bytesWritten)
@@ -115,7 +120,7 @@ final class DetailSampler {
         func top(_ values: [String: Double]) -> [AppUsage] {
             values.filter { $0.value > 0.01 }.sorted { $0.value > $1.value }.prefix(2).map { AppUsage(name: $0.key, value: $0.value) }
         }
-        r.topCPU = top(cpu); r.topGPU = top(gpu)
+        r.topCPU = top(cpu); r.topGPU = top(gpu); r.topEnergy = top(energy)
         r.processCount = count; r.diskRate = validInterval ? disk/elapsed : 0
         r.cpuTemperature = temperature(["Te05","Te0S","Te09","Te0H","Tp01","Tp05","Tp09","Tp0D","Tp0V","Tp0Y","Tp0b","Tp0e"])
         r.gpuTemperature = temperature(["Tg0G","Tg0H","Tg0K","Tg0L","Tg0d","Tg0e","Tg0j","Tg0k"])
@@ -282,91 +287,106 @@ func loginStatus() -> String {
     }
 }
 
+final class CompactMetric: NSView {
+    private let value = label("—",size:23,weight:.semibold)
+    private let graph = Sparkline()
+    private var history: [Double] = []
+    init(_ title:String,_ tint:NSColor) {
+        super.init(frame:NSRect(x:0,y:0,width:148,height:70))
+        wantsLayer = true; layer?.cornerRadius = 12; layer?.backgroundColor = NSColor.white.withAlphaComponent(0.055).cgColor
+        let heading = label(title,size:11,weight:.semibold,color:tint); heading.frame = NSRect(x:10,y:46,width:128,height:17); addSubview(heading)
+        value.frame = NSRect(x:10,y:16,width:128,height:30); addSubview(value)
+        graph.tint = tint; graph.frame = NSRect(x:9,y:3,width:130,height:14); addSubview(graph)
+    }
+    required init?(coder:NSCoder) { fatalError("init(coder:) has not been implemented") }
+    func update(_ reading:Double?) {
+        value.stringValue = reading.map { String(format:"%.0f%%",$0) } ?? "—"
+        if let reading { history.append(reading); history = Array(history.suffix(30)); graph.values = history }
+    }
+}
+
 final class StatsController: NSViewController {
-    let cpuCard: MetricCard
-    let gpuCard: MetricCard
-    private let temperatures = label("CPU — °C     GPU — °C", size: 17, weight: .semibold)
-    private let cpuApps = label("Sampling apps…", size: 12)
-    private let gpuApps = label("Sampling apps…", size: 12)
-    private let ram = label("RAM · Reading…",size:13,weight:.semibold)
-    private let battery = label("Battery · Reading…",size:13,weight:.semibold)
-    private let health = label("Battery health · Reading…",size:11,color:.secondaryLabelColor)
-    private let activity = label("Reading this Mac…", size: 12)
-    private let sizeLabel = label("Pet size · 100%", size: 12)
-    private let slider = NSSlider(value: 100, minValue: 50, maxValue: 200, target: nil, action: nil)
-    private let login = NSButton(checkboxWithTitle: "Start automatically at login", target: nil, action: nil)
-    private let loginDetail = label("", size: 11, color: .secondaryLabelColor)
+    let cpuCard = CompactMetric("CPU",.systemCyan)
+    let gpuCard = CompactMetric("GPU",.systemOrange)
+    private let temperatures = label("",size:12,weight:.medium)
+    private let cpuApps = label("",size:10,color:.secondaryLabelColor)
+    private let gpuApps = label("",size:10,color:.secondaryLabelColor)
+    private let ram = label("",size:12,weight:.semibold)
+    private let battery = label("",size:12,weight:.semibold)
+    private let health = label("",size:11,color:.secondaryLabelColor)
+    private let activity = label("",size:11,color:.secondaryLabelColor)
+    private let sizeLabel = label("Pet size",size:12)
+    private let slider = NSSlider(value:100,minValue:50,maxValue:200,target:nil,action:nil)
+    private let login = NSButton(checkboxWithTitle:"Start automatically at login",target:nil,action:nil)
+    private let loginDetail = label("",size:11,color:.secondaryLabelColor)
+    private let tabs = NSSegmentedControl(labels:["Overview","Power","Settings"],trackingMode:.selectOne,target:nil,action:nil)
+    private var pages: [NSView] = []
+    private let powerBattery = label("",size:13,weight:.semibold)
+    private let powerTemperature = label("",size:13)
+    private let systemPower = label("",size:13,weight:.semibold)
+    private let adapterPower = label("",size:13,weight:.semibold)
+    private let adapterMaximum = label("",size:11,color:.secondaryLabelColor)
+    private let powerHealth = label("",size:11,color:.secondaryLabelColor)
+    private let energyApps = label("",size:11,color:.secondaryLabelColor)
+    private let batteryGraph = Sparkline()
+    private let systemGraph = Sparkline()
+    private var batteryHistory: [Double] = []
+    private var powerHistory: [Double] = []
     var onClose: (() -> Void)?
     var onSize: ((Double) -> Void)?
     var onAlerts: (() -> Void)?
-    init(cpuName: String, gpuName: String) {
-        cpuCard = MetricCard(title: "CPU", detail: cpuName, symbol: "cpu", tint: .systemCyan)
-        gpuCard = MetricCard(title: "GPU", detail: gpuName, symbol: "display", tint: .systemOrange)
-        super.init(nibName: nil, bundle: nil)
-    }
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    init(cpuName:String,gpuName:String) { super.init(nibName:nil,bundle:nil) }
+    required init?(coder:NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func loadView() {
-        let background = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 344, height: 780))
-        background.material = .popover; background.blendingMode = .behindWindow; background.state = .active
-        background.appearance = NSAppearance(named: .darkAqua)
-        let scroll = NSScrollView(frame:NSRect(x:0,y:0,width:344,height:680))
-        scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true; scroll.drawsBackground = false
-        scroll.documentView = background; view = scroll
-        func place(_ v: NSView, _ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) {
-            v.frame = NSRect(x:x,y:y >= 262 ? y+100 : y,width:w,height:h); background.addSubview(v)
-        }
-        place(label("Tintin", size: 21, weight: .bold),18,639,180,28)
-        let alerts = NSButton(title:"Alerts…",target:self,action:#selector(openAlerts)); alerts.bezelStyle = .rounded
-        place(alerts,211,639,85,28)
-        place(label("Local only · network access blocked",size:12,color:.secondaryLabelColor),18,619,290,18)
-        let close = NSButton(image: NSImage(systemSymbolName:"xmark.circle.fill", accessibilityDescription:"Close statistics")!,target:self,action:#selector(closePanel))
-        close.isBordered = false; place(close,303,643,23,23)
-        place(temperatures,18,582,310,27)
-        temperatures.toolTip = "Average of available CPU and GPU die sensors. A dash means the sensor is unavailable."
-        place(cpuCard,16,471,312,103)
-        place(cpuApps,22,422,300,44); cpuApps.maximumNumberOfLines = 2
-        cpuApps.toolTip = "Top two apps by CPU usage across total machine capacity; helper processes grouped by application."
-        place(gpuCard,16,311,312,103)
-        place(gpuApps,22,262,300,44); gpuApps.maximumNumberOfLines = 2
-        gpuApps.toolTip = "Top two apps by measured GPU time, in milliseconds per second. Parallel GPU work can overlap."
-        ram.frame = NSRect(x:20,y:322,width:304,height:23); background.addSubview(ram)
-        battery.frame = NSRect(x:20,y:292,width:304,height:23); background.addSubview(battery)
-        health.frame = NSRect(x:20,y:264,width:304,height:23); background.addSubview(health)
-        ram.toolTip = "Resident anonymous RAM minus purgeable pages, plus wired and compressed RAM. Reclaimable file cache is excluded. GiB uses binary units."
-        health.toolTip = "Estimated remaining full-charge capacity relative to design capacity, capped at 100%. May differ from Apple's rounded maximum-capacity figure. Condition is reported by macOS."
-        place(label("CURRENT ACTIVITY",size:10,weight:.semibold,color:.secondaryLabelColor),20,239,300,17)
-        place(activity,20,164,304,73); activity.maximumNumberOfLines = 4; activity.lineBreakMode = .byWordWrapping
-        place(sizeLabel,20,138,304,20)
-        slider.target = self; slider.action = #selector(changeSize); slider.isContinuous = true
-        slider.setAccessibilityLabel("Pet size percent"); place(slider,18,110,308,25)
-        login.target = self; login.action = #selector(changeLogin); place(login,18,77,310,24)
-        place(loginDetail,22,57,300,18)
-        let monitor = NSButton(title:"Activity Monitor",target:self,action:#selector(openMonitor)); monitor.bezelStyle = .rounded
-        place(monitor,16,15,147,28)
-        let downloads = NSButton(title:"Downloads",target:self,action:#selector(openDownloads)); downloads.bezelStyle = .rounded
-        place(downloads,174,15,154,28)
-        preferredContentSize = scroll.frame.size
-        scroll.contentView.scroll(to:NSPoint(x:0,y:100)); scroll.reflectScrolledClipView(scroll.contentView)
-        setScale(UserDefaults.standard.double(forKey:"petScale"))
-        refreshLogin()
+        let root = NSVisualEffectView(frame:NSRect(x:0,y:0,width:336,height:450))
+        root.material = .popover; root.state = .active; root.blendingMode = .behindWindow
+        root.appearance = NSAppearance(named:.darkAqua); view = root
+        func place(_ v:NSView,_ parent:NSView,_ x:CGFloat,_ y:CGFloat,_ w:CGFloat,_ h:CGFloat) { v.frame = NSRect(x:x,y:y,width:w,height:h); parent.addSubview(v) }
+        place(label("Tintin",size:19,weight:.bold),root,16,407,150,27)
+        place(label("Local only · network blocked",size:10,color:.secondaryLabelColor),root,16,389,230,16)
+        let alerts = NSButton(title:"Alerts…",target:self,action:#selector(openAlerts)); alerts.bezelStyle = .rounded; place(alerts,root,213,407,80,25)
+        let close = NSButton(image:NSImage(systemSymbolName:"xmark.circle.fill",accessibilityDescription:"Close statistics")!,target:self,action:#selector(closePanel)); close.isBordered = false; place(close,root,301,409,22,22)
+        tabs.target = self; tabs.action = #selector(changeTab); tabs.selectedSegment = 0; place(tabs,root,14,356,308,27)
+        for _ in 0..<3 { let page = NSView(frame:NSRect(x:12,y:10,width:312,height:336)); root.addSubview(page); pages.append(page) }
+        let overview = pages[0], power = pages[1], settings = pages[2]
+        place(cpuCard,overview,0,263,148,70); place(gpuCard,overview,164,263,148,70)
+        place(cpuApps,overview,4,218,144,39); cpuApps.maximumNumberOfLines = 2
+        place(gpuApps,overview,168,218,144,39); gpuApps.maximumNumberOfLines = 2
+        cpuApps.toolTip = "Top two CPU apps, grouped with helpers. Percent of total machine CPU capacity."
+        gpuApps.toolTip = "Top two GPU apps by GPU time in milliseconds per second."
+        place(temperatures,overview,4,185,304,23)
+        place(ram,overview,4,155,304,23); place(battery,overview,4,124,304,23); place(health,overview,4,99,304,22)
+        health.toolTip = "Estimated remaining full-charge capacity versus design capacity; capped at 100%."
+        place(activity,overview,4,14,304,76); activity.maximumNumberOfLines = 4; activity.lineBreakMode = .byWordWrapping
+        place(powerBattery,power,4,302,304,24)
+        batteryGraph.tint = .systemGreen; place(batteryGraph,power,4,267,304,30)
+        place(label("APPS USING ENERGY",size:10,weight:.semibold,color:.secondaryLabelColor),power,4,242,304,18)
+        place(energyApps,power,4,201,304,39); energyApps.maximumNumberOfLines = 2
+        energyApps.toolTip = "Top two apps by kernel-reported process energy delta per second, in watts. Not a full system energy attribution."
+        place(powerTemperature,power,4,168,304,24)
+        place(systemPower,power,4,135,304,24)
+        systemGraph.tint = .systemOrange; place(systemGraph,power,4,101,304,29)
+        systemPower.toolTip = "System power reported by SMC, or the local battery power telemetry fallback."
+        place(adapterPower,power,4,69,304,24); place(adapterMaximum,power,4,46,304,20)
+        adapterPower.toolTip = "Measured adapter input; adapter maximum is its reported rated capacity, not present usage."
+        place(powerHealth,power,4,12,304,25)
+        place(sizeLabel,settings,4,290,304,24)
+        slider.target = self; slider.action = #selector(changeSize); slider.isContinuous = true; slider.setAccessibilityLabel("Pet size percent"); place(slider,settings,0,259,310,27)
+        login.target = self; login.action = #selector(changeLogin); place(login,settings,0,211,312,25); place(loginDetail,settings,4,186,304,20)
+        let monitor = NSButton(title:"Activity Monitor",target:self,action:#selector(openMonitor)); monitor.bezelStyle = .rounded; place(monitor,settings,0,131,312,30)
+        let downloads = NSButton(title:"Downloads",target:self,action:#selector(openDownloads)); downloads.bezelStyle = .rounded; place(downloads,settings,0,91,312,30)
+        let local = label("Hardware readings and alerts run locally.\nThe pet's network access is blocked.",size:11,color:.secondaryLabelColor); local.maximumNumberOfLines = 2; place(local,settings,4,36,304,39)
+        preferredContentSize = root.frame.size; setScale(UserDefaults.standard.double(forKey:"petScale")); refreshLogin(); changeTab()
     }
+    @objc private func changeTab() { for (i,page) in pages.enumerated() { page.isHidden = i != tabs.selectedSegment } }
     @objc private func closePanel() { onClose?() }
     @objc private func openAlerts() { onAlerts?() }
     @objc private func changeSize() { setScale(slider.doubleValue/100); onSize?(slider.doubleValue/100) }
-    func setScale(_ value: Double) {
-        let scale = value == 0 ? 1 : value
-        slider.doubleValue = scale*100; sizeLabel.stringValue = "Pet size · \(Int(scale*100))%"
-    }
-    func refreshLogin() {
-        login.state = SMAppService.mainApp.status == .enabled ? .on : .off
-        loginDetail.stringValue = "Login launch: " + loginStatus()
-    }
+    func setScale(_ value:Double) { let scale = value == 0 ? 1 : value; slider.doubleValue = scale*100; sizeLabel.stringValue = "Pet size · \(Int(scale*100))%" }
+    func refreshLogin() { login.state = SMAppService.mainApp.status == .enabled ? .on : .off; loginDetail.stringValue = "Login launch: " + loginStatus() }
     @objc private func changeLogin() {
-        do {
-            if login.state == .on { try SMAppService.mainApp.register() }
-            else { try SMAppService.mainApp.unregister() }
-            refreshLogin()
-        } catch { loginDetail.stringValue = error.localizedDescription; refreshLogin() }
+        do { if login.state == .on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }; refreshLogin() }
+        catch { refreshLogin(); loginDetail.stringValue = error.localizedDescription }
         if SMAppService.mainApp.status == .requiresApproval { SMAppService.openSystemSettingsLoginItems() }
     }
     @objc private func openMonitor() { NSWorkspace.shared.open(URL(fileURLWithPath:"/System/Applications/Utilities/Activity Monitor.app")) }
@@ -407,6 +427,16 @@ final class StatsController: NSViewController {
         }
         activity.stringValue = "\(state) · \(r.processCount) processes\n\(names.isEmpty ? "Waiting for activity samples" : names)\nDisk I/O \(String(format:"%.1f",r.diskRate/1e6)) MB/s · \(pressure)"
         activity.toolTip = "Live sampled activity, not task progress. Process disk I/O includes reads and writes. Updates every two seconds."
+        powerBattery.stringValue = battery.stringValue
+        powerHealth.stringValue = health.stringValue
+        func watts(_ value:Double?) -> String { value.map { String(format:"%.1f W",$0) } ?? "—" }
+        powerTemperature.stringValue = "Battery temperature   " + (r.battery?.power?.batteryTemperature.map { String(format:"%.0f °C",$0) } ?? "—")
+        systemPower.stringValue = "System   " + watts(r.battery?.power?.systemWatts)
+        adapterPower.stringValue = "Adapter   " + (r.battery?.pluggedIn == true ? watts(r.battery?.power?.adapterWatts) : "Not connected")
+        adapterMaximum.stringValue = r.battery?.power?.adapterMaximumWatts.map { String(format:"%.0f W rated maximum",$0) } ?? "Rated maximum unavailable"
+        energyApps.stringValue = r.topEnergy.isEmpty ? "No per-app energy data reported" : r.topEnergy.map { "\($0.name)  " + watts($0.value) }.joined(separator:"\n")
+        if let value = r.battery?.percent { batteryHistory.append(value); batteryHistory = Array(batteryHistory.suffix(30)); batteryGraph.values = batteryHistory }
+        if let value = r.battery?.power?.systemWatts { powerHistory.append(value); powerHistory = Array(powerHistory.suffix(30)); let scale = max(10,powerHistory.max() ?? 10); systemGraph.values = powerHistory.map { $0/scale*100 } }
     }
 }
 
@@ -649,7 +679,7 @@ if CommandLine.arguments.contains("--self-test") {
     _ = sampler.sample()
     Thread.sleep(forTimeInterval: 2.05)
     let r = sampler.sample()
-    let payload: [String: Any] = ["networkPolicy":"deny network*; applied before app initialization","cpuPercent":r.cpu as Any? ?? NSNull(),"gpuPercent":r.gpu as Any? ?? NSNull(),"cpuTemperature":r.cpuTemperature as Any? ?? NSNull(),"gpuTemperature":r.gpuTemperature as Any? ?? NSNull(),"ramUsedBytes":r.memory?.usedBytes as Any? ?? NSNull(),"ramTotalBytes":r.memory?.totalBytes as Any? ?? NSNull(),"ramPercent":r.memory?.percent as Any? ?? NSNull(),"batteryPercent":r.battery?.percent as Any? ?? NSNull(),"batteryHealthPercentEstimate":r.battery?.healthPercent as Any? ?? NSNull(),"batteryCondition":r.battery?.condition as Any? ?? NSNull(),"batteryCycles":r.battery?.cycles as Any? ?? NSNull(),"batteryCharging":r.battery?.charging as Any? ?? NSNull(),"batteryPluggedIn":r.battery?.pluggedIn as Any? ?? NSNull(),"cpuName":sampler.cpuName,"gpuName":sampler.gpuName,"processCount":r.processCount,"topCPU":r.topCPU.map { ["name":$0.name,"percentOfMachine":$0.value] as [String:Any] },"topGPU":r.topGPU.map { ["name":$0.name,"millisecondsPerSecond":$0.value] as [String:Any] },"diskBytesPerSecond":r.diskRate,"loginStatus":loginStatus()]
+    let payload: [String: Any] = ["networkPolicy":"deny network*; applied before app initialization","cpuPercent":r.cpu as Any? ?? NSNull(),"gpuPercent":r.gpu as Any? ?? NSNull(),"cpuTemperature":r.cpuTemperature as Any? ?? NSNull(),"gpuTemperature":r.gpuTemperature as Any? ?? NSNull(),"ramUsedBytes":r.memory?.usedBytes as Any? ?? NSNull(),"ramTotalBytes":r.memory?.totalBytes as Any? ?? NSNull(),"ramPercent":r.memory?.percent as Any? ?? NSNull(),"batteryPercent":r.battery?.percent as Any? ?? NSNull(),"batteryHealthPercentEstimate":r.battery?.healthPercent as Any? ?? NSNull(),"batteryCondition":r.battery?.condition as Any? ?? NSNull(),"batteryCycles":r.battery?.cycles as Any? ?? NSNull(),"batteryTemperature":r.battery?.power?.batteryTemperature as Any? ?? NSNull(),"systemWatts":r.battery?.power?.systemWatts as Any? ?? NSNull(),"adapterWatts":r.battery?.power?.adapterWatts as Any? ?? NSNull(),"adapterMaximumWatts":r.battery?.power?.adapterMaximumWatts as Any? ?? NSNull(),"topEnergy":r.topEnergy.map { ["name":$0.name,"watts":$0.value] as [String:Any] },"batteryCharging":r.battery?.charging as Any? ?? NSNull(),"batteryPluggedIn":r.battery?.pluggedIn as Any? ?? NSNull(),"cpuName":sampler.cpuName,"gpuName":sampler.gpuName,"processCount":r.processCount,"topCPU":r.topCPU.map { ["name":$0.name,"percentOfMachine":$0.value] as [String:Any] },"topGPU":r.topGPU.map { ["name":$0.name,"millisecondsPerSecond":$0.value] as [String:Any] },"diskBytesPerSecond":r.diskRate,"loginStatus":loginStatus()]
     let data = try JSONSerialization.data(withJSONObject: payload,options: [.prettyPrinted,.sortedKeys])
     print(String(decoding: data,as: UTF8.self)); exit(r.cpu == nil ? 1 : 0)
 }
